@@ -2,13 +2,17 @@ import numpy as np
 from typing import Dict, List, Optional
 import gymnasium as gym
 import gymnasium_robotics
+import torch
 
 gym.register_envs(gymnasium_robotics)
 
 
-class AntMazeReplayBuffer:
+class ReplayBuffer:
     
-    def __init__(self, capacity: int = 1000000):
+    def __init__(self, env, capacity: int = 1000000):
+
+        self.env = env
+
         self.capacity = capacity
         self.episodes: List[Dict[str, np.ndarray]] = []
         self.total_transitions = 0
@@ -55,46 +59,45 @@ class AntMazeReplayBuffer:
             removed = self.episodes.pop(0)
             self.total_transitions -= removed['length']
     
-    def collect_episode(self, max_steps=1000, render=False):
+    def collect_episode(self, policy=None, max_steps=1000, render=False):
         """
-        Collect a single episode from the environment.
-       """
+        Collect a single episode from the environment and append it to the buffer.
+        """
         states, actions, rewards, next_states, dones = [], [], [], [], []
 
-        example_map = [[1, 1, 1, 1, 1],
-               [1, 0, 0, 0, 1],  
-               [1, 0, 0, 0, 1],       
-               [1, 1, 1, 1, 1]]
-
-        env = gym.make('AntMaze_UMazeDense-v5', maze_map=example_map, 
-               continuing_task=True, max_episode_steps=1000)
-        
-        state, info = env.reset()
+        state, info = self.env.reset()
         done = False
         truncated = False
         step = 0
         
         while not (done or truncated) and step < max_steps:
-            # Get action from policy or random
-            # if policy is None:
-            #     action = env.action_space.sample()
-            # else:
-            #     action = policy(state)
-            action = env.action_space.sample() 
-            next_state, reward, done, truncated, info_step = env.step(action)
-            
-            states.append(state["observation"])
+            if policy is None:
+                action = self.env.action_space.sample()
+            else:
+                state_ = torch.tensor(state.copy(), dtype=torch.float32).unsqueeze(0)
+
+                # state_ = state_.to("cuda" if torch.cuda.is_available() else "cpu")
+
+                with torch.no_grad():
+                    action_tensor = policy(state_)
+
+                # ensure numpy on cpu
+                action = action_tensor.cpu().numpy().squeeze(0)
+
+            next_state, reward, done, truncated, _ = self.env.step(action)
+
+            states.append(state)
             actions.append(action)
             rewards.append(reward)
-            next_states.append(next_state["observation"])
+            next_states.append(next_state)
             dones.append(done or truncated)
-            
+
             if render:
-                env.render()
-            
+                self.env.render()
+
             state = next_state
             step += 1
-        
+
         states = np.array(states)
         actions = np.array(actions)
         rewards = np.array(rewards)
@@ -122,18 +125,22 @@ class AntMazeReplayBuffer:
         self._rewards = np.concatenate([ep['rewards'] for ep in self.episodes])
         self._next_states = np.concatenate([ep['next_states'] for ep in self.episodes])
         self._dones = np.concatenate([ep['dones'] for ep in self.episodes])
+
+        self._states = torch.tensor(self._states, dtype=torch.float32, device=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self._actions = torch.tensor(self._actions, dtype=torch.float32, device=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self._rewards = torch.tensor(self._rewards, dtype=torch.float32, device=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self._next_states = torch.tensor(self._next_states, dtype=torch.float32, device=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self._dones = torch.tensor(self._dones, dtype=torch.float32, device=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
         
     
     def sample(self, batch_size: int) -> Dict[str, np.ndarray]:
         """
         Sample random transitions for training.
-        
-        Returns:
-            batch: Dict with 'states', 'actions', 'rewards', 'next_states', 'dones'
         """
         self._build_flat_buffer()
         
         indices = np.random.randint(0, len(self._states), size=batch_size)
+        indices = torch.tensor(indices, dtype=torch.long, device=self._states.device)
         
         return {
             'states': self._states[indices],
@@ -154,7 +161,31 @@ class AntMazeReplayBuffer:
     
 
 if __name__ == "__main__":
-    buffer =AntMazeReplayBuffer(capacity=1000000)
-    buffer.collect_episodes(num_episodes=10, max_steps=10000)
+    import os
+    import sys
+    sys.path.append(os.getcwd())
+
+    from fql.policy import OneStepPolicy
+    
+    # example_map = [[1, 1, 1, 1, 1],
+    #         [1, 0, 0, 0, 1],  
+    #         [1, 0, 0, 0, 1],       
+    #         [1, 1, 1, 1, 1]]
+
+    # env = gym.make('AntMaze_UMazeDense-v5', 
+    #                maze_map=example_map, 
+    #                continuing_task=True, 
+    #             #    max_episode_steps=10000
+    #                )
+
+    env = gym.make('HalfCheetah-v5')
+    
+    state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
+    
+    one_step_policy = OneStepPolicy(state_dim=state_dim, action_dim=action_dim)
+    
+    buffer =ReplayBuffer(env = env, capacity=1000000)
+    buffer.collect_episodes(num_episodes=10, max_steps=10000, policy=one_step_policy)
     print(f"Collected {len(buffer)} transitions across {len(buffer.episodes)} episodes.")
     
