@@ -5,7 +5,8 @@ One-step policy network that distills from flow policy.
 import torch
 import torch.nn as nn
 from typing import Sequence
-from mlp import MLP
+# from mlp import MLP
+from fql.mlp import MLP
 
 
 class OneStepPolicy(nn.Module):
@@ -56,12 +57,13 @@ class OneStepPolicy(nn.Module):
         device = state.device
 
         z = torch.randn(batch_size, self.action_dim, device=device)
-        
+       
         # Concatenate state and noise
         inputs = torch.cat([state, z], dim=-1)
-        
-        # Predict action directly (one-step)
+
         action = self.network(inputs)
+
+        action = torch.tanh(action)
         
         return action
     
@@ -89,7 +91,7 @@ class OneStepPolicy(nn.Module):
         )
         
         # Generate actions
-        actions = self.forward(state, z)
+        actions = self.forward(state)
         
         return actions
 
@@ -116,9 +118,7 @@ def compute_distillation_loss(
     """
     batch_size = states.shape[0]
     device = states.device
-    
-    noise = torch.randn(batch_size, one_step_policy.action_dim, device=device)
-    
+       
     one_step_actions = one_step_policy(states)
     
     with torch.no_grad():
@@ -142,7 +142,6 @@ def compute_one_step_policy_loss(
     flow_policy: nn.Module,
     critic: nn.Module,
     states: torch.Tensor,
-    noise: torch.Tensor = None,
     bc_coef: float = 1.0,
 ) -> tuple[torch.Tensor, dict]:
     """
@@ -165,12 +164,8 @@ def compute_one_step_policy_loss(
     batch_size = states.shape[0]
     device = states.device
     
-    # Sample noise if not provided
-    if noise is None:
-        noise = torch.randn(batch_size, one_step_policy.action_dim, device=device)
-    
     # Generate actions from one-step policy
-    actions = one_step_policy(states, noise)
+    actions = one_step_policy(states)
     
     # Q loss: -Q(s, a_π)
     q_values = critic(states, actions)  # [num_ensemble, batch_size, 1]
@@ -179,7 +174,7 @@ def compute_one_step_policy_loss(
     
     # Distillation loss
     with torch.no_grad():
-        flow_actions = flow_policy(states, noise)
+        flow_actions = flow_policy(states)
     distill_loss = torch.mean((actions - flow_actions) ** 2)
     
     # Combined loss
@@ -197,34 +192,34 @@ def compute_one_step_policy_loss(
     return total_loss, info
 
 
-if __name__ == "__main__":
-    # Test OneStepPolicy
-    batch_size = 32
-    state_dim = 17
-    action_dim = 6
+# if __name__ == "__main__":
+#     # Test OneStepPolicy
+#     batch_size = 32
+#     state_dim = 17
+#     action_dim = 6
     
-    print("Testing OneStepPolicy...")
-    one_step_policy = OneStepPolicy(state_dim, action_dim)
+#     print("Testing OneStepPolicy...")
+#     one_step_policy = OneStepPolicy(state_dim, action_dim)
     
-    states = torch.randn(batch_size, state_dim)
-    z = torch.randn(batch_size, action_dim)
+#     states = torch.randn(batch_size, state_dim)
+#     z = torch.randn(batch_size, action_dim)
     
-    actions = one_step_policy(states)
-    print(f"Generated actions shape: {actions.shape}")
-    print(f"Expected: ({batch_size}, {action_dim})")
+#     actions = one_step_policy(states)
+#     print(f"Generated actions shape: {actions.shape}")
+#     print(f"Expected: ({batch_size}, {action_dim})")
     
     
-    # Test with automatic noise sampling
-    actions_auto = one_step_policy(states)
-    print(f"Auto-sampled actions shape: {actions_auto.shape}")
+#     # Test with automatic noise sampling
+#     actions_auto = one_step_policy(states)
+#     print(f"Auto-sampled actions shape: {actions_auto.shape}")
     
-    # Test distillation loss (mock flow policy)
-    print("\nTesting distillation loss...")
-    from flow import FlowVelocityField, FlowPolicy
+#     # Test distillation loss (mock flow policy)
+#     print("\nTesting distillation loss...")
+#     from flow import FlowVelocityField, FlowPolicy
     
-    velocity_field = FlowVelocityField(state_dim, action_dim)
-    flow_policy = FlowPolicy(velocity_field, num_steps=10)
+#     velocity_field = FlowVelocityField(state_dim, action_dim)
+#     flow_policy = FlowPolicy(velocity_field, num_steps=10)
     
-    loss, info = compute_distillation_loss(one_step_policy, flow_policy, states)
-    print(f"Distillation loss: {loss.item():.4f}")
-    print(f"Info: {info}")
+#     loss, info = compute_distillation_loss(one_step_policy, flow_policy, states)
+#     print(f"Distillation loss: {loss.item():.4f}")
+#     print(f"Info: {info}")
