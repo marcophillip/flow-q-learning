@@ -37,6 +37,7 @@ class MLP(nn.Module):
         
         for i, hidden_dim in enumerate(hidden_dims):
             # Linear layer
+            # layers.append(nn.BatchNorm1d(prev_dim))
             layers.append(nn.Linear(prev_dim, hidden_dim))
             
             # Layer norm (if enabled)
