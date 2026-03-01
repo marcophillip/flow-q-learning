@@ -5,7 +5,7 @@ Flow matching networks for behavioral cloning policy.
 import torch
 import torch.nn as nn
 from typing import Sequence
-from mlp import MLP
+from fql.mlp import MLP
 
 
 class FlowVelocityField(nn.Module):
@@ -109,6 +109,7 @@ class FlowPolicy(nn.Module):
             velocity = self.velocity_field(t, state, x)
             x = x + velocity * dt
         
+        x = torch.tanh(x)
         return x
     
     @torch.no_grad()
@@ -194,35 +195,35 @@ def compute_flow_matching_loss(
     return loss, info
 
 
-if __name__ == "__main__":
-    # Test FlowVelocityField
-    batch_size = 32
-    state_dim = 17
-    action_dim = 6
+# if __name__ == "__main__":
+#     # Test FlowVelocityField
+#     batch_size = 32
+#     state_dim = 17
+#     action_dim = 6
     
-    print("Testing FlowVelocityField...")
-    velocity_field = FlowVelocityField(state_dim, action_dim)
+#     print("Testing FlowVelocityField...")
+#     velocity_field = FlowVelocityField(state_dim, action_dim)
     
-    t = torch.rand(batch_size, 1)
-    states = torch.randn(batch_size, state_dim)
-    x = torch.randn(batch_size, action_dim)
+#     t = torch.rand(batch_size, 1)
+#     states = torch.randn(batch_size, state_dim)
+#     x = torch.randn(batch_size, action_dim)
     
-    velocity = velocity_field(t, states, x)
-    print(f"Velocity shape: {velocity.shape}")
-    print(f"Expected: ({batch_size}, {action_dim})")
+#     velocity = velocity_field(t, states, x)
+#     print(f"Velocity shape: {velocity.shape}")
+#     print(f"Expected: ({batch_size}, {action_dim})")
     
-    # Test FlowPolicy
-    print("\nTesting FlowPolicy...")
-    flow_policy = FlowPolicy(velocity_field, num_steps=10)
+#     # Test FlowPolicy
+#     print("\nTesting FlowPolicy...")
+#     flow_policy = FlowPolicy(velocity_field, num_steps=10)
     
-    actions = flow_policy(states)
-    print(f"Generated actions shape: {actions.shape}")
-    print(f"Expected: ({batch_size}, {action_dim})")
+#     actions = flow_policy(states)
+#     print(f"Generated actions shape: {actions.shape}")
+#     print(f"Expected: ({batch_size}, {action_dim})")
     
     
-    # Test flow matching loss
-    print("\nTesting flow matching loss...")
-    dataset_actions = torch.randn(batch_size, action_dim)
-    loss, info = compute_flow_matching_loss(velocity_field, states, dataset_actions)
-    print(f"Flow loss: {loss.item():.4f}")
-    print(f"Info: {info}")
+#     # Test flow matching loss
+#     print("\nTesting flow matching loss...")
+#     dataset_actions = torch.randn(batch_size, action_dim)
+#     loss, info = compute_flow_matching_loss(velocity_field, states, dataset_actions)
+#     print(f"Flow loss: {loss.item():.4f}")
+#     print(f"Info: {info}")
